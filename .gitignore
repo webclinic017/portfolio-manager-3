@@ -1,0 +1,7 @@
+
+*.csv
+*.xlsx
+*.ipynb
+tests.py
+*.pyc
+.ipynb_checkpoints/*
