@@ -5,8 +5,8 @@ Small tool made for personal portfolio management used by me and my close friend
 I have been using this a my playground for testing new things, like time series forecasting techniques on stock data. Time series forecasting done here is by no means suitable for real investment decisions :)
 
 Repo contents:
-    dashboard.py: Dash app 
-    portfoliomanager.py: Functionality for dash app
+- dashboard.py: Dash app 
+- portfoliomanager.py: Functionality for dash app
 
 ![screen1](/screen1.JPG?raw=true "Screen1")
 ![screen2](/screen2.JPG?raw=true "Screen2")
