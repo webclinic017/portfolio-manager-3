@@ -9,11 +9,12 @@ information. Some very experimental time series forecasting
 done with fbprophet and skearn.
 
 Todo:
+    * Check Wärtsilä transactions, not counted corretly now
+    * Timeline figure drawing function needs buttons for flexible timeline
     * Now just a plain module with a lot of functions looping through 
     dictionary of dataframes containing time series data. Better design is 
     most likely to make class containing fucntionality for single ticker dataframe.
     * Web scraping to fetch some of the csv files automatically
-    * 
 """
 
 # libraries
@@ -32,12 +33,14 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 # Financial stuff
-import pandas_datareader as pdr #ei käytössä atm, koska kaikki data YF:llä nyt. Tässä moduulissa kuitenkin sqlite cache option niin täällä siltä varalta jos halutaan käyttää myöhemmin
+# import pandas_datareader as pdr #ei käytössä atm, koska kaikki data YF:llä nyt. Tässä moduulissa kuitenkin sqlite cache option niin täällä siltä varalta jos halutaan käyttää myöhemmin
 # import quandl #registered here with api key, but aktia not found fe. aapl = quandl.get("WIKI/AAPL", start_date="2006-10-01", end_date="2012-01-01")
 import datetime
 # import pyfolio as pf #tää hylätty, koska ei tarvetta riskianalyysille, tarjoaa ison paketin valmiissa graafeissa
-from yahoofinancials import YahooFinancials #2019 alun moduuli, palauttaa kaiken JSON
+# from yahoofinancials import YahooFinancials #2019 alun moduuli, palauttaa kaiken JSON
 import yfinance as yf
+
+import requests
 
 # Facebook's library for time series predictions using PyStan
 from fbprophet import Prophet
@@ -57,28 +60,23 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
     
-def load_transtactions(filenames):
+def load_transtactions(filename):
     """Loads all portfolio transactions from csv files exported from Inderes website.
 
     Args:
-        filenames: List of filenames to read. Files assumed to be on same path where this is run. Transactions in files are combined to same portfolio.
+        filename: csv file
     
     Returns:
         df_trans: Dataframe of transactions.
-        cash: float of current cash amount of portfolio.
     """
-    df_trans = pd.DataFrame()
-    cash = 0
-    for f in filenames:
-        df_trans = df_trans.append(pd.read_csv(f, encoding='utf-16 LE', sep='\t',decimal=',',thousands=' '))
-        cash += df_trans['Saldo'][0] #cash now can be found on last transaction
+    df_trans = pd.read_csv(filename, encoding='utf-16 LE', sep='\t',decimal=',',thousands=' ')
     df_trans.reset_index(inplace=True)
     df_trans['Kirjauspäivä'] = pd.to_datetime(df_trans.Kirjauspäivä)
 
     # nested helper to connect valid ticker information to ticker names found in CSVs
     def get_stock_names(s):
         
-        # dict to map various messy ticker names found in nordnet transactions files to standard tickers, needs a bit manual updating
+        # Map of various messy TOIMENPIDE names found in nordnet transactions files to standard ticker names. Needs a bit manual updating
         arvopaperit_dict = {
             'AKTIA.HE' : ['AKTIA'],
             'BITTI.HE' : ['BITTI'],
@@ -99,6 +97,10 @@ def load_transtactions(filenames):
             'WRT1V.HE' : ['WRT1V'],
             'YIT.HE' : ['YIT'],
             'QDVE.DE' : ['QDVE'],
+            'QDVE.DE' : ['QDVE'],
+            'TIETO.HE' : ['TIETO'],
+            'REMEDY.HE' : ['REMEDY'],
+            'HEALTH.HE' : ['HEALTH','NIGHTINGALE MERKINTÄSITOUMUS'],
         }
         stocks = []
         for v in s:
@@ -112,17 +114,9 @@ def load_transtactions(filenames):
         return stocks
     df_trans['Osake'] = get_stock_names(df_trans.Arvopaperi)
 
-    return df_trans, cash
+    return df_trans
 
 def load_inderes_file(filename):
-    """Downloads ticker price information using Yahoo Finance Python API.
-    
-    Args:
-        tickers: List of downloaded tickers.
-    
-    Returns:
-        dict_timelines: Dict using tickers as keys and dataframe of ticker prices over time.
-    """
     df_inderes_hist = pd.read_csv(filename, encoding='utf-8', sep=';', header=None, skiprows=[0,1], decimal=',',thousands=' ') #read without headers
     # manually fix 2 row header reading
     infile = open(filename, 'r', encoding='utf-8') 
@@ -143,14 +137,28 @@ def load_inderes_file(filename):
     df_inderes_hist.rename(columns={'﻿Yhtiö':'Yhtiö'}, inplace=True) # fix annoying col name
     return df_inderes_hist
 
+def get_symbol(clear_name):
+    """Uses Yahoo API to return ticker name agains clean company name
+    Args:
+        clear_name (str): Company name found fe. in inderes recommendations export file
+
+    Returns:
+        str: ticker name.
+    """
+    url = "http://d.yimg.com/autoc.finance.yahoo.com/autoc?query={}&region=1&lang=en".format(clear_name)
+    result = requests.get(url).json()
+    for x in result['ResultSet']['Result']:
+        if x['exch'] == 'HEL':
+            return x['symbol']
+
 def download_stock_timelines(tickers):
-    """Downloads ticker price information using Yahoo Finance Python API.
+    """Downloads daily ticker price information since 2015 using Yahoo Finance Python API.
     
     Args:
-        tickers: List of downloaded tickers.
+        tickers (list of str): List of downloaded tickers.
     
     Returns:
-        dict_timelines: Dict using tickers as keys and dataframe of ticker prices over time.
+        df: Dict using tickers as keys and dataframe of ticker prices over time.
     """
     start = time.time()
 
@@ -176,24 +184,31 @@ def download_stock_timelines(tickers):
         # Most likely better to use this: https://pandas-datareader.readthedocs.io/en/latest/cache.html
         if len(tickers) > 1:
             df_tmp2 = df_tmp_m.loc[(df_tmp_m['variable_1'] == s)].set_index([index_name]) # slice indivisual stock out
-            dict_timelines[s] = df_tmp2.pivot(columns='variable_0', values='value') # variable_0 should be lower col level of multi-index df. 'Adj Close' & others.
+            df_tmp2 = df_tmp2.pivot(columns='variable_0', values='value') # variable_0 should be lower col level of multi-index df. 'Adj Close' & others.
         else:
             df_tmp2 = df_tmp_m.set_index([index_name]) #whole df is just one stock
-            dict_timelines[s] = df_tmp2.pivot(columns='variable', values='value') 
-        dict_timelines[s] = dict_timelines[s].dropna(how='all').reindex(full_data_range) #add missing value rows
-        dict_timelines[s].index.name = 'Date'
-        dict_timelines[s]['Adj Close'] = dict_timelines[s]['Adj Close'].fillna(method='ffill').fillna(method='bfill')  #fill missing closing price, first from back, then from forward (for those with only single value)
-        dict_timelines[s]['Close'] = dict_timelines[s]['Close'].fillna(method='ffill').fillna(method='bfill')  #fill missing closing price, first from back, then from forward (for those with only single value)
+            df_tmp2 = df_tmp2.pivot(columns='variable', values='value')
+
+        # Sometimes Yahoo API returns clearly too high numbers for Adj Close, remove these
+        f = (df_tmp2['Adj Close'] < (df_tmp2['Adj Close'].mean() * 100))
+        df_tmp2 = df_tmp2.loc[f]
+        dict_timelines[s] = df_tmp2
+
+        # Missing value filling is disabled for now since we want things to work with weekends not being in the data.
+        # dict_timelines[s] = dict_timelines[s].dropna(how='all').reindex(full_data_range) #add missing value rows
+        # dict_timelines[s].index.name = 'Date'
+        # dict_timelines[s]['Adj Close'] = dict_timelines[s]['Adj Close'].fillna(method='ffill').fillna(method='bfill')  #fill missing closing price, first from back, then from forward (for those with only single value)
+        # dict_timelines[s]['Close'] = dict_timelines[s]['Close'].fillna(method='ffill').fillna(method='bfill')  #fill missing closing price, first from back, then from forward (for those with only single value)
     return dict_timelines
 
 def download_ticker_data(tickers):
     """Downloads general information about tickers using Yahoo Finance Python API.
     
     Args:
-        tickers: List of downloaded tickers.
+        tickers (list of str): List of downloaded tickers.
     
     Returns:
-        df_stock_stats: Dataframe containing general information about company and some most common KPIs.
+        df: Dataframe containing general information about company and some most common KPIs.
     
     """
     dict_pe_forward = {}
@@ -233,10 +248,10 @@ def read_notes(filename):
     """Read personal notes from excel file to dataframe.
     
     Args:
-        filename: Path to excel file containing notes
+        filename (str): Path to excel file containing notes
     
     Returns:
-        df_notes: Dataframe containing notes
+        df: Dataframe containing notes
     """
     # todo: salkkumuistiinpanot loogisempia kuin yksittäisten osakkeiden ja ne ei nyt missään näkyvissä
     df_notes = pd.read_excel(filename)
@@ -277,6 +292,119 @@ def read_insider_trades(filename):
     df_sisapiirin_kaupat_per_day = flatten(df_sisapiirin_kaupat.groupby(['Yhtiö','Päivämäärä']).agg(sisapiirin_kaukat_aggregation))
     return df_sisapiirin_kaupat_per_day
 
+def get_portfolio_summary(transactions, dict_timelines, df_inderes_suosit, ticker_names_dict):
+    """Creates summary of portfolio contents based on given list of 
+    transactions. Only works with Nordnet style export for now.
+    
+    Args:
+        transactions (list of df): List of datafranes containing transactions read from Nordnet export file.
+        dict_timelines (dict of df): Stock price information.
+    
+    Returns:
+        df: Dataframe containig contents of portfolio.
+    
+    """
+
+    def flatten(df): #flatten df to get rid of 2-level column names
+        df.columns = ['_'.join(tuple(map(str, t))) for t in df.columns.values]
+        df.columns = [t.replace('_utuple','') for t in df.columns.values]
+        df.reset_index(inplace=True)
+        return df
+
+    #asetukset
+    kauppatapahtumat = ['OSTO','MYYNTI','LUNASTUS AP OTTO','MAKSUTON OSAKEANTI / BONUS ISSUE']
+    osinkotapahtumat = ['OSINGON PERUUTUS', 'OSINKO','ENNAKKOPIDÄTYS']
+    summary_aggregation = {
+                        'Kirjauspäivä': ['max'],
+                        }
+
+    df_s = pd.DataFrame()
+    cash = 0
+
+    for df_transactions in transactions:
+
+        cash += df_transactions['Saldo'][0] #cash now can be found on last transaction which is first line in file
+        df_summary = df_transactions.groupby(['Osake']).agg(summary_aggregation) #only valid month rows
+        df_summary = flatten(df_summary)
+
+        kokonaismaara = []
+        nykykurssi = []
+        sij_paaoma = []
+        osingot = []
+
+        for index, row in df_summary.iterrows():
+            df_tmp = df_transactions.loc[(df_transactions.Osake == row.Osake) & df_transactions.Tapahtumatyyppi.apply(lambda x: True if x in osinkotapahtumat else False)]
+            osingot.append(df_tmp['Summa'].sum())
+
+            df_tmp = df_transactions.loc[(df_transactions.Osake == row.Osake) & df_transactions.Tapahtumatyyppi.apply(lambda x: True if x in kauppatapahtumat else False)]
+            sij_paaoma.append(-df_tmp['Summa'].sum())
+
+            df_tmp = df_tmp.loc[(df_tmp.Kirjauspäivä == df_tmp.Kirjauspäivä.max())]
+            kokonaismaara.append(df_tmp['Kokonaismäärä'].values[0])
+
+            if row.Osake in dict_timelines.keys(): 
+                nykykurssi.append(dict_timelines[row.Osake].dropna(subset=['Close']).tail(1)['Close'].values[0])
+            else:
+                nykykurssi.append(0)
+
+        df_summary['Kokonaismäärä'] = kokonaismaara
+        df_summary['Nykykurssi'] = nykykurssi
+        df_summary['Omistuksen arvo'] = df_summary['Kokonaismäärä'] * df_summary['Nykykurssi']
+        df_summary['Tuotto'] = df_summary['Omistuksen arvo'] - sij_paaoma + osingot
+
+        if df_s.shape[0] == 0:
+            df_s = df_summary
+        else:
+            df_s = df_s.merge(df_summary, on=['Osake'], how='outer', suffixes=('','_n'))
+            # summed cols
+            for c in ['Kokonaismäärä','Omistuksen arvo','Tuotto']:
+                f = ~(df_s[c + '_n'].isna())
+                df_s.loc[f, c] += df_s.loc[f, c + '_n']
+                f = (df_s[c].isna())
+                df_s.loc[f, c] = df_s.loc[f, c + '_n']
+            for c in ['Nykykurssi']:
+                f = (df_s[c].isna())
+                df_s.loc[f, c] = df_s.loc[f, c + '_n']
+                        
+        df_s['Yhtiö'] = df_s['Osake'].map(ticker_names_dict)
+        df_s = df_s.merge(df_inderes_suosit[['Yhtiö','Tavoitehinta']], on=['Yhtiö'], how='left')
+        df_s['Potentiaali'] = ((df_s['Tavoitehinta'] - df_s['Nykykurssi']) / df_s['Nykykurssi']).round(3)
+
+        df_s = df_s[[
+            'Osake',
+            'Kokonaismäärä',
+            'Nykykurssi',
+            'Omistuksen arvo',
+            'Tuotto',
+            'Potentiaali',
+        ]]
+    return df_s, cash
+
+def make_fig_contents_pie(df_summary, portfolio_cash, portfolio_name):
+    """Creates summary of portfolio contents based on given list of 
+    transactions. Only works with Nordnet style export for now.
+    
+    Args:
+        df_summary (df): Dataframe containig contents of portfolio.
+        portfolio_cash (float): Available cash.
+    Returns:
+        fig: Pie of portfolio contents.
+    
+    """
+    df_fig = df_summary.loc[(df_summary['Omistuksen arvo'] > 0), ['Osake', 'Omistuksen arvo','Potentiaali']].copy()
+    df_fig = df_fig.append({
+        'Osake': 'CASH', 
+        'Omistuksen arvo': portfolio_cash,
+        'Potentiaali': 0,
+        }, ignore_index=True)
+
+    fig = px.sunburst(df_fig, values='Omistuksen arvo', path=['Osake'],color='Potentiaali', color_continuous_scale='RdBu', color_continuous_midpoint=0,
+    title='Contents of ' + portfolio_name)
+    fig.update_layout(
+        margin = dict(t=50, l=10, r=10, b=10)
+    )
+    return fig
+
 def make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_notes, df_insider_trades, portfolio_transactions, sma_days, start_date, dict_predictions=None):
     """Draws figure with data traces of all stocks and indices passed as parameters. 
     
@@ -293,69 +421,79 @@ def make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df
         dict_predictions: Dictionary of all available futre predictoins of stock timeline data. Tickers as keys, Dataframes as values.
     
     Returns:
-        Figure - Line graph
+        fig: Line graph
     
     """    
     fig_timeline = make_subplots(specs=[[{"secondary_y": True}]])
+    fig_timeline.update_layout(height=1300) # optimised for 1440p screen now
+
     for s in ticker_names_dict.keys():
-        df = dict_timelines[s].loc[dict_timelines[s].index > start_date].copy()
-        scale_value = df['Adj Close'][0]
-        df['Scaled Adj Close'] = df['Adj Close'] / scale_value
-        
-        # stock
-        fig_timeline.add_trace(go.Scatter(x=df.index, y=df['Scaled Adj Close'],
-                    mode='lines',
-                    name=ticker_names_dict[s]))
-        # rolling mean
-        fig_timeline.add_trace(go.Scatter(x=df.index, y=df['Scaled Adj Close'].rolling(sma_days).mean(),
-                    mode='lines',
-                    name=ticker_names_dict[s] + ' SMA ' + str(sma_days)))
-        # future prediction
-        if dict_predictions:
-            df2 = dict_predictions[s].loc[dict_predictions[s].index > start_date].copy()
-            df2['Scaled Adj Close'] = df2['Adj Close'] / scale_value
-            fig_timeline.add_trace(go.Scatter(x=df2.index, y=df2['Scaled Adj Close'],
+        f = (dict_timelines[s].index > start_date)
+        if dict_timelines[s].loc[f].shape[0] > 0:
+            df = dict_timelines[s].loc[f].copy()
+            scale_value = df['Adj Close'][0]
+            df['Scaled Adj Close'] = df['Adj Close'] / scale_value
+            
+            # stock price
+            fig_timeline.add_trace(go.Scatter(x=df.index, y=df['Scaled Adj Close'],
                         mode='lines',
-                        name=ticker_names_dict[s] + ' prediction'))
-        # notes
-        df_notes_s = df_notes.loc[df_notes['Osake'] == s].merge(df, left_on=['Arvio tehty'], right_index=True)
-        if df_notes_s.shape[0] > 0:
-            fig_timeline.add_trace(go.Scatter(x=df_notes_s['Arvio tehty'], y=df_notes_s['Scaled Adj Close'],
-                        mode='markers',
-                        name=ticker_names_dict[s] + ' notes'))
-        # insider trades
-        df_insider_trades_s = df_insider_trades.loc[df_insider_trades['Yhtiö'] == s].merge(df, left_on=['Päivämäärä'], right_index=True)
-        if df_insider_trades_s.shape[0] > 0:
-            fig_timeline.add_trace(go.Scatter(x=df_insider_trades_s['Päivämäärä'], y=df_insider_trades_s['Scaled Adj Close'],
-                        mode='markers',
-                        name=ticker_names_dict[s] + ' insider trades'))
-        # portfolio transactins
-        portfolio_transactions_s = portfolio_transactions.loc[portfolio_transactions['Osake'] == s].merge(df.reset_index(), left_on=['Kirjauspäivä'], right_on=['Date'], how='right') #right_index=True, how='right')
-        if portfolio_transactions_s.shape[0] > 0:
-            portfolio_transactions_s.sort_values(['Date'], inplace=True)
-            # make sure first date has 0 owned stocks for line to draw from there
-            portfolio_transactions_s.loc[portfolio_transactions_s.head(1).index, 'Kokonaismäärä'] = portfolio_transactions_s.loc[portfolio_transactions_s.head(1).index, 'Kokonaismäärä'].fillna(0)
-            portfolio_transactions_s['Kokonaismäärä'] = portfolio_transactions_s['Kokonaismäärä'].ffill()
-            fig_timeline.add_trace(go.Scatter(x=portfolio_transactions_s['Date'], y=portfolio_transactions_s['Kokonaismäärä'],
+                        line = dict(width=1),
+                        name=ticker_names_dict[s]))
+            # rolling mean
+            fig_timeline.add_trace(go.Scatter(x=df.index, y=df['Scaled Adj Close'].rolling(sma_days).mean(),
                         mode='lines',
-                        name=ticker_names_dict[s] + ' ownded'), secondary_y=True,)
-        
+                        name=ticker_names_dict[s] + ' SMA ' + str(sma_days)))
+            fig_timeline.data[len(fig_timeline.data)-1]["visible"] = 'legendonly' # hide by default
+            # future prediction
+            if dict_predictions:
+                df2 = dict_predictions[s].loc[dict_predictions[s].index > start_date].copy()
+                df2['Scaled Adj Close'] = df2['Adj Close'] / scale_value
+                fig_timeline.add_trace(go.Scatter(x=df2.index, y=df2['Scaled Adj Close'],
+                            mode='lines',
+                            name=ticker_names_dict[s] + ' prediction'))
+            # notes
+            df_notes_s = df_notes.loc[df_notes['Osake'] == s].merge(df, left_on=['Arvio tehty'], right_index=True)
+            if df_notes_s.shape[0] > 0:
+                fig_timeline.add_trace(go.Scatter(x=df_notes_s['Arvio tehty'], y=df_notes_s['Scaled Adj Close'],
+                            mode='markers',
+                            name=ticker_names_dict[s] + ' notes'))
+            # insider trades
+            df_insider_trades_s = df_insider_trades.loc[df_insider_trades['Yhtiö'] == s].merge(df, left_on=['Päivämäärä'], right_index=True)
+            if df_insider_trades_s.shape[0] > 0:
+                fig_timeline.add_trace(go.Scatter(x=df_insider_trades_s['Päivämäärä'], y=df_insider_trades_s['Scaled Adj Close'],
+                            mode='markers',
+                            name=ticker_names_dict[s] + ' insider trades'))
+            # portfolio transactins
+            portfolio_transactions_s = portfolio_transactions.loc[portfolio_transactions['Osake'] == s].merge(df.reset_index(), left_on=['Kirjauspäivä'], right_on=['Date'], how='right') #right_index=True, how='right')
+            if portfolio_transactions_s.shape[0] > 0:
+                portfolio_transactions_s.sort_values(['Date'], inplace=True)
+                # make sure first date has 0 owned stocks for line to draw from there
+                portfolio_transactions_s.loc[portfolio_transactions_s.head(1).index, 'Kokonaismäärä'] = portfolio_transactions_s.loc[portfolio_transactions_s.head(1).index, 'Kokonaismäärä'].fillna(0)
+                portfolio_transactions_s['Kokonaismäärä'] = portfolio_transactions_s['Kokonaismäärä'].ffill()
+                fig_timeline.add_trace(go.Scatter(x=portfolio_transactions_s['Date'], y=portfolio_transactions_s['Kokonaismäärä'],
+                            mode='lines',
+                            name=ticker_names_dict[s] + ' ownded'), secondary_y=True,)
+                fig_timeline.data[len(fig_timeline.data)-1]["visible"] = 'legendonly' # hide by default
+
     for s in index_names_dict.keys():
         df = dict_index[s].loc[dict_index[s].index > start_date].copy()
         df['Scaled Adj Close'] = df['Adj Close'] / df['Adj Close'][0]
         fig_timeline.add_trace(go.Scatter(x=df.index, y=df['Scaled Adj Close'],
                     mode='lines',
+                    line = dict(dash='dot'),
                     name=index_names_dict[s]))
+        fig_timeline.data[len(fig_timeline.data)-1]["visible"] = 'legendonly' # hide by default
+
     return fig_timeline
 
 def make_fig_inderes_potential(df_inderes_suosit):
     """Draws figure of top 100 stocks with most potential found among Inderes recommendations.
 
     Args:
-        df_inderes_suosit: Dataframe of of all Inderes recommendations
+        df_inderes_suosit (df): Dataframe of of all Inderes recommendations
 
     Returns:
-        Figure - Bar graph
+        fig: Bar graph
     """
     df_tmp = df_inderes_suosit.sort_values(by=['Potentiaali'], ascending=False).reset_index(drop=True).loc[:100] #inderes suosit 100 parasta
     df_tmp['colors'] = df_tmp['Suositus'].map({'Lisää':'lightgreen', 'Vähennä':'orange', 'Osta':'green', 'Myy':'red'})
@@ -378,25 +516,35 @@ def make_fig_potential(ticker_names_dict, dict_timelines, df_inderes_suosit):
         df_inderes_suosit: Dataframe of of all Inderes recommendations
 
     Returns:
-        Figure - Bar graph
+        fig: Bar graph
     """
     indices, closes, targets, suositukset = [], [], [], []
+    
     for s in ticker_names_dict:
-        if df_inderes_suosit.loc[df_inderes_suosit['Yhtiö'] == ticker_names_dict[s]].shape[0] > 0:
-            indices.append(ticker_names_dict[s])
-            closes.append(dict_timelines['AKTIA.HE'].tail(1)['Close'].values[0])
-            targets.append(df_inderes_suosit.loc[df_inderes_suosit['Yhtiö'] == ticker_names_dict[s], 'Tavoitehinta'].values[0]) # this should always produce one row anyway
-            suositukset.append(df_inderes_suosit.loc[df_inderes_suosit['Yhtiö'] == ticker_names_dict[s], 'Suositus'].values[0]) # this should always produce one row anyway
+
+        # if recommendation is found
+        f = (df_inderes_suosit['Yhtiö'] == ticker_names_dict[s])
+        if df_inderes_suosit.loc[f].shape[0] > 0:
+            # only plot if recommendation price is in EUR. For 2 companies this is in SEK.
+            if df_inderes_suosit.loc[f, 'Valuuttakurssi'].values[0] == 'EUR': 
+                indices.append(ticker_names_dict[s])
+                closes.append(dict_timelines[s].tail(1)['Close'].values[0])
+                targets.append(df_inderes_suosit.loc[df_inderes_suosit['Yhtiö'] == ticker_names_dict[s], 'Tavoitehinta'].values[0]) # this should always produce one row anyway
+                suositukset.append(df_inderes_suosit.loc[df_inderes_suosit['Yhtiö'] == ticker_names_dict[s], 'Suositus'].values[0]) # this should always produce one row anyway
 
     df_tmp = pd.DataFrame(index=indices, data={'Close':closes,'Target':targets, 'Suositus':suositukset})
-    df_tmp['Potential'] = df_tmp['Close'] - df_tmp['Target']
+    df_tmp['Potential'] = (df_tmp['Target'] - df_tmp['Close']) * 100 / df_tmp['Close'] # in %
     df_tmp = df_tmp.sort_values(by=['Potential'], ascending=False).reset_index()
     df_tmp['colors'] = df_tmp['Suositus'].map({'Lisää':'lightgreen', 'Vähennä':'orange', 'Osta':'green', 'Myy':'red'})
     fig = go.Figure()
     fig.add_trace(go.Bar(x=df_tmp['index'], y=df_tmp['Potential'], marker_color=df_tmp['colors'], hovertext=df_tmp['Suositus']
                 ))
+
+    plotted_c = len(fig.data[0]['x'])
+    all_c = df_inderes_suosit.shape[0]
+    
     fig.update_layout(
-        title="Latest price vs Inderes recommendation",
+        title="Latest price vs Inderes recommendation (" + str(plotted_c) + "/" + str(all_c) + " companies)",
         yaxis_title="Potential (%)",
     )
     return fig
@@ -433,7 +581,7 @@ def model_selection(df_timeline):
 
     # Now really simple features used for testing models. Yesteday's price + Diff between yesterday and day before.
     # Needs longer seasonality trends and most likely index values as additional features.
-    df_timeline_f = df_timeline[['Adj Close']]
+    df_timeline_f = df_timeline[['Adj Close']].copy()
     df_timeline_f.loc[:,'Yesterday'] = df_timeline_f.loc[:,'Adj Close'].shift()
     df_timeline_f.loc[:,'Yesterday_Diff'] = df_timeline_f.loc[:,'Yesterday'].diff()
     df_timeline_f = df_timeline_f.dropna() # check later where nas coming
@@ -465,7 +613,7 @@ def model_selection(df_timeline):
     fig = plt.boxplot(results, labels=names)
 
     # to be continued here with automatic test set comparison, maybe autoselection
-    return fig, models
+    return fig, models, results, df_timeline_f
 
 def predict_using(reg, df_timeline):
     """Work in progress. Uses provided model to predictict future Adj Close price based on provided df_timeline.

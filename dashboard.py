@@ -2,10 +2,11 @@
 # coding: utf-8
 """dashboard
 
-Simple dask web app to help personal portfolio management. Functionality in
+Simple dash web app to help personal portfolio management. Functionality in
 portfoliomanager module.
 
 Todo:
+    * GUI to add tickers from Yahoo to now premade list 
     * Portfolio contents pie
     * Portfolio notes visible
 """
@@ -31,15 +32,12 @@ from dash.dependencies import Input, Output, State
 from fbprophet import Prophet
 from fbprophet.plot import plot_plotly, plot_components_plotly
 
-import textwrap # for slitting title text
+import textwrap # for slitting long text
+import pathlib
 
-# Jupyter_dash debugging if True
-debug = True
-if debug:
-    from jupyter_dash import JupyterDash #debugging only
-
-
-
+# debug = True
+# if debug:
+#     from jupyter_dash import JupyterDash #debugging only
 
 ### Data loading
 
@@ -48,24 +46,33 @@ import portfoliomanager as pm
 portfolio_transactions = {}
 portfolio_cash = {}
 
-portfolio_name = 'Own'
-filenames = [
-    'transactions_export_aot.csv',
-    'transactions_export_ost.csv'
-]    
-portfolio_transactions[portfolio_name], portfolio_cash[portfolio_name] = pm.load_transtactions(filenames)
 
-portfolio_name = 'Managed'
-filenames = [
-    'transactions_export_apteekki.csv',
-]
-portfolio_transactions[portfolio_name], portfolio_cash[portfolio_name] = pm.load_transtactions(filenames)
+portfolio_files = {
+    'Own': [
+        'transactions_export_aot.csv',
+        'transactions_export_ost.csv',
+    ],
+    'Managed' : [
+        'transactions_export_apteekki.csv',
+    ],
+}
+
+portfolios = {}
+for pname in portfolio_files.keys():
+    dfs = []
+    for filename in portfolio_files[pname]:
+        dfs.append(pm.load_transtactions(filename))
+    portfolios[pname] = dfs
 
 
 df_inderes_hist = pm.load_inderes_file('company_history_data.csv')
 
 # Now static loading from file, need to implement web scraping here to automize
-df_inderes_suosit = pm.load_inderes_file('inderes_osakevertailu_2020_10_21_13_56_56.csv')
+file_path = pathlib.Path(__file__).parent
+for f in file_path.iterdir():
+    if f.name.startswith('inderes_osakevertailu'):
+        l = (f.name)
+df_inderes_suosit = pm.load_inderes_file(l)
 
 # Dictionary of downloadable stocks and their tickers
 # Needs moving to external file later
@@ -112,6 +119,12 @@ ticker_names_dict = {
     'QDVE.DE':'iShares S&P 500 Information Technology Sector UCITS ETF USD (Acc)',
 }
 
+# append ticker_names_dict with companies found in inderes recommendations
+for c in df_inderes_suosit['Yhtiö'].tolist():
+    symbol = pm.get_symbol(c)
+    if symbol is not None:
+        ticker_names_dict[symbol] = c
+
 dict_timelines = pm.download_stock_timelines(list(ticker_names_dict.keys()))
 
 #needs moving to external file later
@@ -131,30 +144,40 @@ df_muistiinpanot = pm.read_notes('osakeseuranta_2.xlsx')
 df_sisapiirin_kaupat_per_day = pm.read_insider_trades('sisapiirin_kaupat.csv')
 
 # Length of history in plots
-history_days = 365*2
-
+history_days = round(365*0.25) # about 3m
 start_date = datetime.datetime.now() - datetime.timedelta(days=history_days)
-fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolio_transactions['Own'], 10, start_date)
-fig_inderes_potential = pm.make_fig_inderes_potential(df_inderes_suosit)
+
+fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolios['Own'][0], 10, start_date) # little workaround with transactions now
+
+# fig_inderes_potential = pm.make_fig_inderes_potential(df_inderes_suosit)
 fig_potential = pm.make_fig_potential(ticker_names_dict, dict_timelines, df_inderes_suosit)
 
 # Empty placeholder figures for future prictions done via callback
 fig_future = go.Figure()
 fig_components = go.Figure()
 
-
-
-
+# Summary of portfolio contents
+dict_summary = {}
+portfolio_cash = {}
+for p in portfolios:
+    df_s, cash = pm.get_portfolio_summary(portfolios[p], dict_timelines, df_inderes_suosit, ticker_names_dict)
+    dict_summary[p] = df_s
+    portfolio_cash[p] = cash
+dict_summary['Own']
+# Figures of portfolio contents.
+dict_pie_figs = {}
+for p in dict_summary:
+    dict_pie_figs[p] = pm.make_fig_contents_pie(dict_summary[p], portfolio_cash[p], p)
 
 
 ### App configuration
 
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
-if debug:
-    app = JupyterDash(__name__, external_stylesheets=external_stylesheets)
-else:
-    app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+# if debug:
+#     app = JupyterDash(__name__, external_stylesheets=external_stylesheets)
+# else:
+app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 server = app.server # the app.server is the Flask app
 
@@ -225,9 +248,9 @@ app.layout = html.Div(children=[
         html.Div([
             dcc.Graph(id="fig_timeline", figure=fig_timeline, config=config)
         ]),
-        html.Div([
-            dcc.Graph(id="fig_inderes_potential", figure=fig_inderes_potential, config=config)
-        ]),
+        # html.Div([
+        #     dcc.Graph(id="fig_inderes_potential", figure=fig_inderes_potential, config=config)
+        # ]),
         html.Div([
             dcc.Graph(id="fig_potential", figure=fig_potential, config=config)
         ]),
@@ -247,19 +270,21 @@ app.layout = html.Div(children=[
         html.Div([
             dcc.Graph(id="fig_components", figure=fig_components, config=config)
         ]),
+        html.Div([
+            dcc.Graph(id="fig_pie1", figure=dict_pie_figs['Own'], config=config)
+        ]),
+        html.Div([
+            dcc.Graph(id="fig_pie2", figure=dict_pie_figs['Managed'], config=config)
+        ]),
     ], className="row"),
 ])
 
 # Callbacks
 @app.callback(
     Output('fig_timeline', 'figure'),
-    [
     Input('btn-1', 'n_clicks'),
-    ], 
-    [
     State('stock-ticker-input', 'value'),
     State('index-ticker-input', 'value'),
-    ],
     prevent_initial_call=True)
 def update_timelines(n_clicks, stock_tickers, index_tickers):
 
@@ -270,18 +295,14 @@ def update_timelines(n_clicks, stock_tickers, index_tickers):
     dict_timelines = pm.download_stock_timelines(stock_tickers)
     dict_index = pm.download_stock_timelines(index_tickers)
 
-    fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict_f, index_names_dict_f, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolio_transactions['Own'], 10, start_date)
+    fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolios['Own'][0], 10, start_date) # little workaround with transactions now
 
     return fig_timeline
 
 @app.callback(
-    [
     Output('fig_future', 'figure'),
     Output('fig_components', 'figure'),
-    ],
-    [
     Input('predict-ticker-input', 'value'),
-    ], 
     prevent_initial_call=True)
 def update_predictions(ticker):
 
