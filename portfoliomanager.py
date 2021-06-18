@@ -19,6 +19,7 @@ Todo:
 
 # libraries
 from os import path
+import numpy as np
 import pandas as pd
 pd.options.display.float_format = '{:.3f}'.format
 pd.options.display.max_columns = 100
@@ -76,7 +77,7 @@ def load_transtactions(filename):
     # nested helper to connect valid ticker information to ticker names found in CSVs
     def get_stock_names(s):
         
-        # Map of various messy TOIMENPIDE names found in nordnet transactions files to standard ticker names. Needs a bit manual updating
+        # Map of standard ticker names to various messy Arvopaperi names found in nordnet transactions files. Needs a bit manual updating
         arvopaperit_dict = {
             'AKTIA.HE' : ['AKTIA'],
             'BITTI.HE' : ['BITTI'],
@@ -101,6 +102,7 @@ def load_transtactions(filename):
             'TIETO.HE' : ['TIETO'],
             'REMEDY.HE' : ['REMEDY'],
             'HEALTH.HE' : ['HEALTH','NIGHTINGALE MERKINTÄSITOUMUS'],
+            'TEM1V.HE' : ['TEM1V'],
         }
         stocks = []
         for v in s:
