@@ -18,7 +18,8 @@ Todo:
 """
 
 # libraries
-from os import path
+# from os import path
+import pathlib
 import numpy as np
 import pandas as pd
 pd.options.display.float_format = '{:.3f}'.format
@@ -61,86 +62,176 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 sns.set()
     
-def load_transtactions(filename):
-    """Loads all portfolio transactions from csv files exported from Inderes website.
+class PortfolioManager:
 
-    Args:
-        filename: csv file
-    
-    Returns:
-        df_trans: Dataframe of transactions.
-    """
-    df_trans = pd.read_csv(filename, encoding='utf-16 LE', sep='\t',decimal=',',thousands=' ')
-    df_trans.reset_index(inplace=True)
-    df_trans['Kirjauspäivä'] = pd.to_datetime(df_trans.Kirjauspäivä)
+    def __init__(self):
 
-    # nested helper to connect valid ticker information to ticker names found in CSVs
-    def get_stock_names(s):
-        
-        # Map of standard ticker names to various messy Arvopaperi names found in nordnet transactions files. Needs a bit manual updating
-        arvopaperit_dict = {
-            'AKTIA.HE' : ['AKTIA'],
-            'BITTI.HE' : ['BITTI'],
-            'Caverion' : ['CAV1V'],
-            'DIGIA.HE' : ['DIGIA'],
-            'GOFORE.HE' : ['GOFORE'],
-            'IFA1V.HE' : ['IFA1V'],
-            'QTCOM.HE' : ['QTCOM'],
-            'Martela' : ['MARAS'],
-            'NDA-FI.HE' : ['NDA FI','NDA1V', 'NDA1V FIKTIV','NDA1VN0109', 'NDA1VU0109'],
-            'NOKIA' : ['NOKIA'],
-            'ORNAV.HE' : ['ORNAV'],
-            'PKC1V.HE' : ['PKC1V'],
-            'Ramirent' : ['RAMI', 'RAMIRENT OSTOTARJOUSOSAKE', 'RAMIRENT OSTOTARJOUSOSAKE/X'],
-            'RAUTE.HE' : ['RAUTE','RTRKS'],
-            'Technopolis' : ['TECHNOPOLIS OSTOTARJOUS HYVÄKSYTTY','TLV1V','TPS1V'],
-            'UPM.HE' : ['UPM'],
-            'WRT1V.HE' : ['WRT1V'],
-            'YIT.HE' : ['YIT'],
-            'QDVE.DE' : ['QDVE'],
-            'QDVE.DE' : ['QDVE'],
-            'TIETO.HE' : ['TIETO'],
-            'REMEDY.HE' : ['REMEDY'],
-            'HEALTH.HE' : ['HEALTH','NIGHTINGALE MERKINTÄSITOUMUS'],
-            'TEM1V.HE' : ['TEM1V'],
+        def load_transtactions(filename):
+            """Loads all portfolio transactions from csv files exported from Inderes website.
+
+            Args:
+                filename: csv file
+            
+            Returns:
+                df_trans: Dataframe of transactions.
+            """
+            df_trans = pd.read_csv(filename, encoding='utf-16 LE', sep='\t',decimal=',',thousands=' ')
+            df_trans.reset_index(inplace=True)
+            df_trans['Kirjauspäivä'] = pd.to_datetime(df_trans.Kirjauspäivä)
+
+            # nested helper to connect valid ticker information to ticker names found in CSVs
+            def get_stock_names(s):
+                
+                # Map of standard ticker names to various messy Arvopaperi names found in nordnet transactions files. Needs a bit manual updating
+                arvopaperit_dict = {
+                    'AKTIA.HE' : ['AKTIA'],
+                    'BITTI.HE' : ['BITTI'],
+                    'Caverion' : ['CAV1V'],
+                    'DIGIA.HE' : ['DIGIA'],
+                    'GOFORE.HE' : ['GOFORE'],
+                    'IFA1V.HE' : ['IFA1V'],
+                    'QTCOM.HE' : ['QTCOM'],
+                    'Martela' : ['MARAS'],
+                    'NDA-FI.HE' : ['NDA FI','NDA1V', 'NDA1V FIKTIV','NDA1VN0109', 'NDA1VU0109'],
+                    'NOKIA' : ['NOKIA'],
+                    'ORNAV.HE' : ['ORNAV'],
+                    'PKC1V.HE' : ['PKC1V'],
+                    'Ramirent' : ['RAMI', 'RAMIRENT OSTOTARJOUSOSAKE', 'RAMIRENT OSTOTARJOUSOSAKE/X'],
+                    'RAUTE.HE' : ['RAUTE','RTRKS'],
+                    'Technopolis' : ['TECHNOPOLIS OSTOTARJOUS HYVÄKSYTTY','TLV1V','TPS1V'],
+                    'UPM.HE' : ['UPM'],
+                    'WRT1V.HE' : ['WRT1V'],
+                    'YIT.HE' : ['YIT'],
+                    'QDVE.DE' : ['QDVE'],
+                    'QDVE.DE' : ['QDVE'],
+                    'TIETO.HE' : ['TIETO'],
+                    'REMEDY.HE' : ['REMEDY'],
+                    'HEALTH.HE' : ['HEALTH','NIGHTINGALE MERKINTÄSITOUMUS'],
+                    'TEM1V.HE' : ['TEM1V'],
+                }
+                stocks = []
+                for v in s:
+                    stock_found = False
+                    for k in arvopaperit_dict.keys():
+                        if v in arvopaperit_dict[k]:
+                            stocks.append(k)
+                            stock_found = True
+                    if stock_found == False:
+                        stocks.append(v)
+                return stocks
+            df_trans['Osake'] = get_stock_names(df_trans.Arvopaperi)
+
+            return df_trans
+
+        def load_inderes_file(filename):
+            df_inderes_hist = pd.read_csv(filename, encoding='utf-8', sep=';', header=None, skiprows=[0,1], decimal=',',thousands=' ') #read without headers
+            # manually fix 2 row header reading
+            infile = open(filename, 'r', encoding='utf-8') 
+            firstLine_list = infile.readline()[:-1].split(';')
+            secondline_list = infile.readline()[:-2].split(';')
+            l = []
+            f_pos = 0
+            s_pos = 0
+            for s in secondline_list:
+                if secondline_list[f_pos] == '':
+                    l.append(firstLine_list[f_pos])
+                else:
+                    l.append(firstLine_list[f_pos] + '_' + secondline_list[s_pos])
+                s_pos += 1
+                if len(firstLine_list) > s_pos and firstLine_list[s_pos] != '':
+                    f_pos = s_pos        
+            df_inderes_hist.columns = l
+            df_inderes_hist.rename(columns={'﻿Yhtiö':'Yhtiö'}, inplace=True) # fix annoying col name
+            return df_inderes_hist
+
+        # not needed????
+        portfolio_transactions = {}
+        portfolio_cash = {}
+
+        portfolio_files = {
+            'Own': [
+                'transactions_export_aot.csv',
+                'transactions_export_ost.csv',
+            ],
+            'Managed' : [
+                'transactions_export_apteekki.csv',
+            ],
         }
-        stocks = []
-        for v in s:
-            stock_found = False
-            for k in arvopaperit_dict.keys():
-                if v in arvopaperit_dict[k]:
-                    stocks.append(k)
-                    stock_found = True
-            if stock_found == False:
-                stocks.append(v)
-        return stocks
-    df_trans['Osake'] = get_stock_names(df_trans.Arvopaperi)
 
-    return df_trans
+        self.portfolios = {}
+        for pname in portfolio_files.keys():
+            dfs = []
+            for filename in portfolio_files[pname]:
+                dfs.append(load_transtactions(filename))
+            self.portfolios[pname] = dfs
 
-def load_inderes_file(filename):
-    df_inderes_hist = pd.read_csv(filename, encoding='utf-8', sep=';', header=None, skiprows=[0,1], decimal=',',thousands=' ') #read without headers
-    # manually fix 2 row header reading
-    infile = open(filename, 'r', encoding='utf-8') 
-    firstLine_list = infile.readline()[:-1].split(';')
-    secondline_list = infile.readline()[:-2].split(';')
-    l = []
-    f_pos = 0
-    s_pos = 0
-    for s in secondline_list:
-        if secondline_list[f_pos] == '':
-            l.append(firstLine_list[f_pos])
-        else:
-            l.append(firstLine_list[f_pos] + '_' + secondline_list[s_pos])
-        s_pos += 1
-        if len(firstLine_list) > s_pos and firstLine_list[s_pos] != '':
-            f_pos = s_pos        
-    df_inderes_hist.columns = l
-    df_inderes_hist.rename(columns={'﻿Yhtiö':'Yhtiö'}, inplace=True) # fix annoying col name
-    return df_inderes_hist
+        self.df_inderes_hist = load_inderes_file('company_history_data.csv')
+
+        # Now static loading from file, need to implement web scraping here to automize
+        file_path = pathlib.Path(__file__).parent
+        for f in file_path.iterdir():
+            if f.name.startswith('inderes_osakevertailu'):
+                l = (f.name)
+
+        self.df_inderes_suosit = load_inderes_file(l)
+
+        def read_notes(filename):
+            """Read personal notes from excel file to dataframe.
+            
+            Args:
+                filename (str): Path to excel file containing notes
+            
+            Returns:
+                df: Dataframe containing notes
+            """
+            # todo: salkkumuistiinpanot loogisempia kuin yksittäisten osakkeiden ja ne ei nyt missään näkyvissä
+            df_notes = pd.read_excel(filename)
+            return df_notes
+
+        # Read notes
+        self.df_muistiinpanot = read_notes('osakeseuranta_2.xlsx')
+
+        def read_insider_trades(filename):
+            """Reads insider trade information from csv exported from Inderes website.
+            
+            Args:
+                filename: path of csv file
+            
+            Returns:
+                df_sisapiirin_kaupat_per_day: Dataframe containig daily sums of insider trades
+            
+            """
+            df_sisapiirin_kaupat = pd.read_csv(filename)
+            df_sisapiirin_kaupat['Päivämäärä'] = pd.to_datetime(df_sisapiirin_kaupat['Päivämäärä']) #to datetime
+            df_sisapiirin_kaupat['Yhteensä'] = df_sisapiirin_kaupat['Yhteensä'].apply(lambda x: x.replace(' ', '').replace('EUR', '')).astype(float)
+            df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Hankinta'] else False), 'Summa'] = df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Hankinta'] else False), 'Yhteensä']
+            df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Luovutus'] else False), 'Summa'] = df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Luovutus'] else False), 'Yhteensä'] * - 1
+            def utuple(s): #returns tuple of all found values
+                l = s.unique()        
+                if len(l) == 1: #don't return tuple with single value
+                    l = l[0]
+                else:
+                    l.sort()
+                    l = tuple(l)
+                return l
+            def flatten(df): #flatten df to get rid of 2-level column names
+                df.columns = ['_'.join(tuple(map(str, t))) for t in df.columns.values]
+                df.columns = [t.replace('_utuple','') for t in df.columns.values]
+                df.reset_index(inplace=True)
+                return df
+            sisapiirin_kaukat_aggregation = {
+                                'Tyyppi' : utuple,
+                                'Summa': ['sum'], 
+                                }
+            df_sisapiirin_kaupat_per_day = flatten(df_sisapiirin_kaupat.groupby(['Yhtiö','Päivämäärä']).agg(sisapiirin_kaukat_aggregation))
+            return df_sisapiirin_kaupat_per_day
+
+        # Insider trades
+        self.df_sisapiirin_kaupat_per_day = read_insider_trades('sisapiirin_kaupat.csv')
 
 def get_symbol(clear_name):
     """Uses Yahoo API to return ticker name agains clean company name
+
     Args:
         clear_name (str): Company name found fe. in inderes recommendations export file
 
@@ -148,10 +239,15 @@ def get_symbol(clear_name):
         str: ticker name.
     """
     url = "http://d.yimg.com/autoc.finance.yahoo.com/autoc?query={}&region=1&lang=en".format(clear_name)
-    result = requests.get(url).json()
-    for x in result['ResultSet']['Result']:
-        if x['exch'] == 'HEL':
-            return x['symbol']
+    result = requests.get(url)
+    if result.status_code == 404:
+        print('HTML reponse 404: Failed to get ticker name for ' + clear_name )
+        return None
+    else:
+        result_json = result.json()
+        for x in result_json['ResultSet']['Result']:
+            if x['exch'] == 'HEL':
+                return x['symbol']
 
 def download_stock_timelines(tickers):
     """Downloads daily ticker price information since 2015 using Yahoo Finance Python API.
@@ -245,54 +341,6 @@ def download_ticker_data(tickers):
     df_stock_stats['priceToBook'] = dict_pb.values()
     df_stock_stats['Business Summary'] = dict_bsummary.values()
     return df_stock_stats
-
-def read_notes(filename):
-    """Read personal notes from excel file to dataframe.
-    
-    Args:
-        filename (str): Path to excel file containing notes
-    
-    Returns:
-        df: Dataframe containing notes
-    """
-    # todo: salkkumuistiinpanot loogisempia kuin yksittäisten osakkeiden ja ne ei nyt missään näkyvissä
-    df_notes = pd.read_excel(filename)
-    return df_notes
-
-def read_insider_trades(filename):
-    """Reads insider trade information from csv exported from Inderes website.
-    
-    Args:
-        filename: path of csv file
-    
-    Returns:
-        df_sisapiirin_kaupat_per_day: Dataframe containig daily sums of insider trades
-    
-    """
-    df_sisapiirin_kaupat = pd.read_csv(filename)
-    df_sisapiirin_kaupat['Päivämäärä'] = pd.to_datetime(df_sisapiirin_kaupat['Päivämäärä']) #to datetime
-    df_sisapiirin_kaupat['Yhteensä'] = df_sisapiirin_kaupat['Yhteensä'].apply(lambda x: x.replace(' ', '').replace('EUR', '')).astype(float)
-    df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Hankinta'] else False), 'Summa'] = df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Hankinta'] else False), 'Yhteensä']
-    df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Luovutus'] else False), 'Summa'] = df_sisapiirin_kaupat.loc[df_sisapiirin_kaupat.Tyyppi.apply(lambda x: True if x in ['Luovutus'] else False), 'Yhteensä'] * - 1
-    def utuple(s): #returns tuple of all found values
-        l = s.unique()        
-        if len(l) == 1: #don't return tuple with single value
-            l = l[0]
-        else:
-            l.sort()
-            l = tuple(l)
-        return l
-    def flatten(df): #flatten df to get rid of 2-level column names
-        df.columns = ['_'.join(tuple(map(str, t))) for t in df.columns.values]
-        df.columns = [t.replace('_utuple','') for t in df.columns.values]
-        df.reset_index(inplace=True)
-        return df
-    sisapiirin_kaukat_aggregation = {
-                        'Tyyppi' : utuple,
-                        'Summa': ['sum'], 
-                        }
-    df_sisapiirin_kaupat_per_day = flatten(df_sisapiirin_kaupat.groupby(['Yhtiö','Päivämäärä']).agg(sisapiirin_kaukat_aggregation))
-    return df_sisapiirin_kaupat_per_day
 
 def get_portfolio_summary(transactions, dict_timelines, df_inderes_suosit, ticker_names_dict):
     """Creates summary of portfolio contents based on given list of 

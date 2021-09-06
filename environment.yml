@@ -1,22 +1,22 @@
 name: portfoliomanagerenv
 channels:
-  - defaults
   - conda-forge
   - plotly
+  - defaults
 dependencies:
   - conda
   - python=3.8
-  - menuinst
-  - console_shortcut
-  - powershell_shortcut
   - pandas
-  - plotly
-  - dash
-  - dash-auth
-  - pyproj
+  - plotly::plotly
+  - conda-forge::dash
+  - conda-forge::dash-auth
   - scikit-learn
   - statsmodels
   - seaborn
   - pystan
-  - fbprophet
-  - dash-bootstrap-components
+  - conda-forge::fbprophet
+  - conda-forge::dash-bootstrap-components
+  - pip
+  - pip:
+    - yfinance
+    - openpyxl

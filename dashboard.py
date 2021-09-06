@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # coding: utf-8
+
 """dashboard
 
 Simple dash web app to help personal portfolio management. Functionality in
@@ -21,10 +22,10 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots #not used atm
 # Dash
 import dash
+import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 from dash.dependencies import Input, Output, State
-
 # import dash_auth
 # from username_and_password_pairs import VALID_USERNAME_PASSWORD_PAIRS
 
@@ -33,46 +34,12 @@ from fbprophet import Prophet
 from fbprophet.plot import plot_plotly, plot_components_plotly
 
 import textwrap # for slitting long text
-import pathlib
 
-# debug = True
-# if debug:
-#     from jupyter_dash import JupyterDash #debugging only
 
 ### Data loading
 
-import portfoliomanager as pm
-
-portfolio_transactions = {}
-portfolio_cash = {}
-
-
-portfolio_files = {
-    'Own': [
-        'transactions_export_aot.csv',
-        'transactions_export_ost.csv',
-    ],
-    'Managed' : [
-        'transactions_export_apteekki.csv',
-    ],
-}
-
-portfolios = {}
-for pname in portfolio_files.keys():
-    dfs = []
-    for filename in portfolio_files[pname]:
-        dfs.append(pm.load_transtactions(filename))
-    portfolios[pname] = dfs
-
-
-df_inderes_hist = pm.load_inderes_file('company_history_data.csv')
-
-# Now static loading from file, need to implement web scraping here to automize
-file_path = pathlib.Path(__file__).parent
-for f in file_path.iterdir():
-    if f.name.startswith('inderes_osakevertailu'):
-        l = (f.name)
-df_inderes_suosit = pm.load_inderes_file(l)
+import portfoliomanager as portfoliomanager
+pm = portfoliomanager.PortfolioManager()
 
 # Dictionary of downloadable stocks and their tickers
 # Needs moving to external file later
@@ -120,12 +87,11 @@ ticker_names_dict = {
 }
 
 # append ticker_names_dict with companies found in inderes recommendations
-for c in df_inderes_suosit['Yhtiö'].tolist():
-    symbol = pm.get_symbol(c)
+for c in pm.df_inderes_suosit['Yhtiö'].tolist():
+    symbol = portfoliomanager.get_symbol(c)
     if symbol is not None:
         ticker_names_dict[symbol] = c
 
-dict_timelines = pm.download_stock_timelines(list(ticker_names_dict.keys()))
 
 #needs moving to external file later
 index_names_dict = {
@@ -135,48 +101,15 @@ index_names_dict = {
     '^N225':'Nikkei 225',
     }
 
-dict_index = pm.download_stock_timelines(list(index_names_dict.keys()))
-
-# Read notes
-df_muistiinpanot = pm.read_notes('osakeseuranta_2.xlsx')
-
-# Insider trades
-df_sisapiirin_kaupat_per_day = pm.read_insider_trades('sisapiirin_kaupat.csv')
-
 # Length of history in plots
 history_days = round(365*0.25) # about 3m
 start_date = datetime.datetime.now() - datetime.timedelta(days=history_days)
 
-fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolios['Own'][0], 10, start_date) # little workaround with transactions now
-
-# fig_inderes_potential = pm.make_fig_inderes_potential(df_inderes_suosit)
-fig_potential = pm.make_fig_potential(ticker_names_dict, dict_timelines, df_inderes_suosit)
-
-# Empty placeholder figures for future prictions done via callback
-fig_future = go.Figure()
-fig_components = go.Figure()
-
-# Summary of portfolio contents
-dict_summary = {}
-portfolio_cash = {}
-for p in portfolios:
-    df_s, cash = pm.get_portfolio_summary(portfolios[p], dict_timelines, df_inderes_suosit, ticker_names_dict)
-    dict_summary[p] = df_s
-    portfolio_cash[p] = cash
-dict_summary['Own']
-# Figures of portfolio contents.
-dict_pie_figs = {}
-for p in dict_summary:
-    dict_pie_figs[p] = pm.make_fig_contents_pie(dict_summary[p], portfolio_cash[p], p)
-
-
 ### App configuration
 
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
+external_stylesheets = [dbc.themes.MATERIA]
+# external_stylesheets=[dbc.themes.GRID] # grids, but no altering to default theme
 
-# if debug:
-#     app = JupyterDash(__name__, external_stylesheets=external_stylesheets)
-# else:
 app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
 
 server = app.server # the app.server is the Flask app
@@ -186,26 +119,17 @@ server = app.server # the app.server is the Flask app
 #         app,
 #         VALID_USERNAME_PASSWORD_PAIRS
 #     )
-# app.config.suppress_callback_exceptions = True
 
-modeBarButtonsToRemove = [
-     'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d',
- 'zoom3d', 'pan3d', 'orbitRotation', 'tableRotation', 'handleDrag3d', 'resetCameraDefault3d', 'resetCameraLastSave3d', 'hoverClosest3d',
- 'hoverClosestCartesian', 'hoverCompareCartesian',
- 'zoomInGeo', 'zoomOutGeo', 'resetGeo', 'hoverClosestGeo',
- 'hoverClosestGl2d', 'hoverClosestPie', 'toggleHover', 'resetViews', 'toImage', 'sendDataToCloud', 'toggleSpikelines', 'resetViewMapbo',
-]
-no_buttons_config = {'modeBarButtonsToRemove': modeBarButtonsToRemove,'displaylogo': False}
+# modeBarButtonsToRemove = [
+#      'zoom2d', 'pan2d', 'select2d', 'lasso2d', 'zoomIn2d', 'zoomOut2d', 'autoScale2d', 'resetScale2d',
+#  'zoom3d', 'pan3d', 'orbitRotation', 'tableRotation', 'handleDrag3d', 'resetCameraDefault3d', 'resetCameraLastSave3d', 'hoverClosest3d',
+#  'hoverClosestCartesian', 'hoverCompareCartesian',
+#  'zoomInGeo', 'zoomOutGeo', 'resetGeo', 'hoverClosestGeo',
+#  'hoverClosestGl2d', 'hoverClosestPie', 'toggleHover', 'resetViews', 'toImage', 'sendDataToCloud', 'toggleSpikelines', 'resetViewMapbo',
+# ]
+# no_buttons_config = {'modeBarButtonsToRemove': modeBarButtonsToRemove,'displaylogo': False}
+
 config = {'displaylogo': False}
-
-# Styling
-app_style = {'font-family': 'Arial'}
-dropdown_style = {
-    'marginBottom': 0, 'marginTop': 5, 'marginLeft': 0, 'marginRight': 0,
-}
-label_style = {
-    'marginBottom': 0, 'marginTop': 0, 'marginLeft': 75, 'marginRight': 75,
-}
 
 def get_dropdown_options(d):
     """Helper to turn dictionary keys into dropdown options into 
@@ -222,66 +146,134 @@ def get_dropdown_options(d):
     return options
 
 # App layout
-app.layout = html.Div(children=[
-    html.Div([
-        html.Label([
-            "Selected stock tickers", 
-            dcc.Dropdown(
-                id='stock-ticker-input',
-                options=get_dropdown_options(ticker_names_dict),
-                value=list(ticker_names_dict.keys()),
-                multi=True
-                #style=dropdown_style
-            ),
-        ]),
-        html.Label([
-            "Selected index tickers", 
-            dcc.Dropdown(
-                id='index-ticker-input',
-                options=get_dropdown_options(index_names_dict),
-                value=list(index_names_dict.keys()),
-                multi=True
-                #style=dropdown_style
-            ),
-        ]),
-        html.Button('Draw graphs', id='btn-1'),
-        html.Div([
-            dcc.Graph(id="fig_timeline", figure=fig_timeline, config=config)
-        ]),
+timeline_and_selections = dbc.Row(
+    [
+        dbc.Row(
+            [
+                dbc.Col(
+                    [
+                        html.Label([
+                            "Selected stock tickers", 
+                            dcc.Dropdown(
+                                id='stock-ticker-input',
+                                options=get_dropdown_options(ticker_names_dict),
+                                value=list(ticker_names_dict.keys()),
+                                multi=True
+                            ),
+                        ]),
+                    ], width=6,
+                ),
+                dbc.Col(
+                    [
+                        html.Label([
+                            "Selected index tickers", 
+                            dcc.Dropdown(
+                                id='index-ticker-input',
+                                options=get_dropdown_options(index_names_dict),
+                                value=list(index_names_dict.keys()),
+                                multi=True
+                            ),
+                        ]),
+                    ], width=6,
+                ),
+            ],
+            # style = {'background-color' : 'blue'}, #align debugging
+        ),
+        dbc.Col(
+            [
+                dbc.Row(
+                    dbc.Button('Draw graphs', id='btn-1', style = {'margin-bottom': '2px'}, size='sm'),
+                    #style = {'background-color' : 'red'}, #align debugging
+                    justify = 'center',
+                ),
+                dbc.Row(
+                    dbc.Col(
+                        dcc.Graph(id="fig_timeline", config=config),
+                        #style = {'background-color' : 'black'}, #align debugging
+                    ),
+                 ),
+            ],
+        ),
+    ],
+    # style = {'background-color' : 'coral'}, #align debugging
+)
+
+potential_figure = dbc.Row(
+    [
         # html.Div([
         #     dcc.Graph(id="fig_inderes_potential", figure=fig_inderes_potential, config=config)
         # ]),
-        html.Div([
-            dcc.Graph(id="fig_potential", figure=fig_potential, config=config)
+        dbc.Col([
+            dcc.Graph(id="fig_potential", config=config)
         ]),
-        html.Label([
-            "Predicted ticker", 
-            dcc.Dropdown(
-                id='predict-ticker-input',
-                options=get_dropdown_options(ticker_names_dict),
-                value=list(ticker_names_dict.keys())[0],
-                multi=False
-                #style=dropdown_style
-            ),
-        ]),
-        html.Div([
-            dcc.Graph(id="fig_future", figure=fig_future, config=config)
-        ]),
-        html.Div([
-            dcc.Graph(id="fig_components", figure=fig_components, config=config)
-        ]),
-        html.Div([
-            dcc.Graph(id="fig_pie1", figure=dict_pie_figs['Own'], config=config)
-        ]),
-        html.Div([
-            dcc.Graph(id="fig_pie2", figure=dict_pie_figs['Managed'], config=config)
-        ]),
-    ], className="row"),
-])
+    ]
+)
+
+prediction_figures = dbc.Row(
+    [
+        dbc.Col(
+            [
+                dbc.Row(
+                    [
+                        html.Label([
+                            "Predicted ticker", 
+                            dcc.Dropdown(
+                                id='predict-ticker-input',
+                                options=get_dropdown_options(ticker_names_dict),
+                                value=list(ticker_names_dict.keys())[0],
+                                multi=False,
+                                style={'width':'125%'}
+                            )
+                        ]),
+                    ],
+                    justify = 'center',
+                ),                
+                dbc.Row([
+                    dcc.Graph(id="fig_future", config=config)
+
+                ]),
+               dbc.Row([
+                    dcc.Graph(id="fig_components", config=config)
+                ]),
+            ]
+        ),
+    ]
+)
+
+portfolio_pies = dbc.Row(
+    [
+        dbc.Col([
+            dcc.Graph(id="fig_pie1", config=config)
+        ],  width=6,),
+        dbc.Col([
+            dcc.Graph(id="fig_pie2", config=config)
+        ], width=6,),
+    ]
+)
+
+app.layout = html.Div(
+    [
+        dbc.Container(
+            [
+                timeline_and_selections,
+                potential_figure,
+                portfolio_pies,
+                prediction_figures,
+            ],
+            fluid=True,
+        ),
+    ], 
+    className="dash-bootstrap",
+)
+
 
 # Callbacks
 @app.callback(
     Output('fig_timeline', 'figure'),
+    Output('fig_potential', 'figure'),
+    Output('fig_pie1', 'figure'),
+    Output('fig_pie2', 'figure'),
+
     Input('btn-1', 'n_clicks'),
     State('stock-ticker-input', 'value'),
     State('index-ticker-input', 'value'),
@@ -292,12 +284,27 @@ def update_timelines(n_clicks, stock_tickers, index_tickers):
     ticker_names_dict_f = { k: ticker_names_dict[k] for k in stock_tickers }
     index_names_dict_f = { k: index_names_dict[k] for k in index_tickers }
 
-    dict_timelines = pm.download_stock_timelines(stock_tickers)
-    dict_index = pm.download_stock_timelines(index_tickers)
+    dict_timelines = portfoliomanager.download_stock_timelines(stock_tickers)
+    dict_index = portfoliomanager.download_stock_timelines(index_tickers)
 
-    fig_timeline = pm.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, df_muistiinpanot, df_sisapiirin_kaupat_per_day, portfolios['Own'][0], 10, start_date) # little workaround with transactions now
+    fig_timeline = portfoliomanager.make_fig(dict_timelines, dict_index, ticker_names_dict, index_names_dict, pm.df_muistiinpanot, pm.df_sisapiirin_kaupat_per_day, pm.portfolios['Own'][0], 10, start_date) # little workaround with transactions now
 
-    return fig_timeline
+    fig_potential = portfoliomanager.make_fig_potential(ticker_names_dict, dict_timelines, pm.df_inderes_suosit)
+
+    # Summary of portfolio contents
+    dict_summary = {}
+    portfolio_cash = {}
+    for p in pm.portfolios:
+        df_s, cash = portfoliomanager.get_portfolio_summary(pm.portfolios[p], dict_timelines, pm.df_inderes_suosit, ticker_names_dict)
+        dict_summary[p] = df_s
+        portfolio_cash[p] = cash
+
+    # Figures of portfolio contents.
+    dict_pie_figs = {}
+    for p in dict_summary:
+        dict_pie_figs[p] = portfoliomanager.make_fig_contents_pie(dict_summary[p], portfolio_cash[p], p)
+
+    return fig_timeline, fig_potential, dict_pie_figs['Own'], dict_pie_figs['Managed']
 
 @app.callback(
     Output('fig_future', 'figure'),
@@ -306,7 +313,9 @@ def update_timelines(n_clicks, stock_tickers, index_tickers):
     prevent_initial_call=True)
 def update_predictions(ticker):
 
-    df_timeline_with_future, m = pm.predict_future(dict_timelines[ticker])
+    dict_timelines = portfoliomanager.download_stock_timelines([ticker])
+
+    df_timeline_with_future, m = portfoliomanager.predict_future(dict_timelines[ticker])
     fig_future = plot_plotly(m, df_timeline_with_future)
     fig_components = plot_components_plotly(m, df_timeline_with_future)
     return fig_future, fig_components
